@@ -4,7 +4,7 @@ El historial detallado del paquete está en [`packages/social-login/CHANGELOG.md
 
 ## [0.1.0] - 2026-11-20
 
-Primera versión pública de el paquete para NativePHP Mobile.
+Primera versión pública del paquete para NativePHP Mobile.
 
 ### Agregado
 

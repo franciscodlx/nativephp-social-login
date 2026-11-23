@@ -1,0 +1,83 @@
+name: Release
+
+# Runs on every merge to main (its CI ran on the pull request).
+# Packagist reads composer.json from the root of a
+# repository, so the package lives in a read-only mirror
+# (franciscodlx/nativephp-social-login-plugin) fed with `git subtree split`:
+#
+# - every push to main updates the mirror's main (dev-main on Packagist);
+# - when the top entry of packages/social-login/CHANGELOG.md is a version without
+#   a tag in the mirror, it also pushes the tag `v<version>` (a new release on
+#   Packagist) and opens the GitHub release here.
+#
+# To release: add `## x.y.z` to packages/social-login/CHANGELOG.md in your PR and
+# merge it. The push goes through a deploy key of the mirror (SPLIT_DEPLOY_KEY).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # run it again by hand, e.g. after setting up a registry
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  MIRROR: git@github.com:franciscodlx/nativephp-social-login-plugin.git
+
+jobs:
+  mirror:
+    name: Mirror and tag for Packagist
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # monorepo tag and GitHub release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # subtree split walks the whole history
+      - name: Version from the CHANGELOG
+        id: version
+        run: |
+          version=$(grep -m1 -oE '^## \[?[0-9]+\.[0-9]+\.[0-9]+[^] ]*' packages/social-login/CHANGELOG.md | sed -E 's/^## \[?//')
+          if [ -z "$version" ]; then echo "::error::No '## x.y.z' entry in packages/social-login/CHANGELOG.md"; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Deploy key of the mirror
+        env:
+          SPLIT_DEPLOY_KEY: ${{ secrets.SPLIT_DEPLOY_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SPLIT_DEPLOY_KEY" > ~/.ssh/mirror
+          chmod 600 ~/.ssh/mirror
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+          echo "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/mirror -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
+      - name: Split and push
+        id: split
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          split=$(git subtree split --prefix=packages/social-login HEAD)
+          git push "$MIRROR" "$split:refs/heads/main"
+          if git ls-remote --exit-code --tags "$MIRROR" "refs/tags/v$VERSION" > /dev/null; then
+            echo "v$VERSION is already on the mirror; only main was updated."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          else
+            git push "$MIRROR" "$split:refs/tags/v$VERSION"
+            echo "Pushed v$VERSION: Packagist picks it up from the mirror's webhook."
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: GitHub release
+        if: steps.split.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          notes=$(awk -v v="$VERSION" '
+            /^## / { if (found) exit; if (index($0, v)) { found = 1; next } }
+            found { print }' packages/social-login/CHANGELOG.md)
+          prerelease=""
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "v$VERSION" --target "$SHA" --title "v$VERSION" \
+            --notes "${notes:-Ver packages/social-login/CHANGELOG.md}" $prerelease
