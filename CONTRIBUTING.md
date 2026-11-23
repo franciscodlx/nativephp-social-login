@@ -63,4 +63,8 @@ La demo usa los mismos esquemas que los ejemplos de React Native y Flutter (`lin
 
 ## Publicar
 
-Packagist toma el paquete de un repositorio cuyo `composer.json` esté en la raíz. Este repo lo tiene en `packages/social-login`, así que para publicarlo hay dos caminos: dividir el subdirectorio en su propio repo (por ejemplo con `splitsh/lite` o una GitHub Action) o mover el paquete a la raíz.
+Packagist toma el paquete de un repositorio con `composer.json` en la raíz, así que `packages/social-login` se publica a través de un espejo de solo lectura: [`nativephp-social-login-plugin`](https://github.com/franciscodlx/nativephp-social-login-plugin). No hagas commits ahí.
+
+1. En tu PR, agrega la versión nueva arriba de `packages/social-login/CHANGELOG.md` (`## 0.1.1`) con sus cambios. El job "Version that would be released" del CI avisa si el merge va a publicar.
+2. Al hacer merge, cuando el CI de `main` pasa, el workflow `Release` hace `git subtree split` del paquete y lo empuja a `main` del espejo (`dev-main` en Packagist). Si la versión del CHANGELOG no tiene tag en el espejo, también empuja `v<versión>` y crea el release de GitHub aquí.
+3. Packagist se actualiza con el webhook del espejo.
