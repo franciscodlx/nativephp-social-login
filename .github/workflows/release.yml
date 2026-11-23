@@ -1,6 +1,7 @@
 name: Release
 
-# Runs after CI passes on main. Packagist reads composer.json from the root of a
+# Runs on every merge to main (its CI ran on the pull request).
+# Packagist reads composer.json from the root of a
 # repository, so the package lives in a read-only mirror
 # (franciscodlx/nativephp-social-login-plugin) fed with `git subtree split`:
 #
@@ -12,10 +13,9 @@ name: Release
 # To release: add `## x.y.z` to packages/social-login/CHANGELOG.md in your PR and
 # merge it. The push goes through a deploy key of the mirror (SPLIT_DEPLOY_KEY).
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
     branches: [main]
+  workflow_dispatch: # run it again by hand, e.g. after setting up a registry
 
 permissions: {}
 
@@ -29,14 +29,13 @@ env:
 jobs:
   mirror:
     name: Mirror and tag for Packagist
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write # monorepo tag and GitHub release
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0 # subtree split walks the whole history
       - name: Version from the CHANGELOG
         id: version
@@ -73,7 +72,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          SHA: ${{ github.sha }}
         run: |
           notes=$(awk -v v="$VERSION" '
             /^## / { if (found) exit; if (index($0, v)) { found = 1; next } }
